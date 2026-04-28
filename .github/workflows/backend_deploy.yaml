@@ -1,4 +1,13 @@
 name: Deploy Backend
+# Required secrets:
+#   CLOUDFLARE_ACCOUNT_ID  - Cloudflare account ID (required)
+#   CLOUDFLARE_API_TOKEN   - Cloudflare API token with Workers deploy permissions (required)
+#   BACKEND_TOML           - Full wrangler.toml content (required, see worker/wrangler.toml.template)
+# Optional secrets:
+#   USE_WORKER_ASSETS           - Set to any non-empty value to bundle frontend assets into the worker
+#   USE_WORKER_ASSETS_WITH_TELEGRAM - Set to any non-empty value to use telegram pages variant
+#   DEBUG_MODE                  - Set to "true" to enable verbose deploy output
+#   BACKEND_USE_MAIL_WASM_PARSER - Set to any non-empty value to enable WASM mail parser
 
 on:
   workflow_run:
@@ -16,68 +25,91 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v4
         name: Install pnpm
         id: pnpm-install
         with:
           version: 10
           run_install: false
 
-      - name: Deploy Backend for ${{ github.ref_name }}
+      - name: Validate required secrets
         run: |
-          export use_worker_assets=${{ secrets.USE_WORKER_ASSETS }}
-          export use_worker_assets_with_telegram=${{ secrets.USE_WORKER_ASSETS_WITH_TELEGRAM }}
-          
+          set -euo pipefail
+          missing=()
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            missing+=("CLOUDFLARE_ACCOUNT_ID")
+          fi
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            missing+=("CLOUDFLARE_API_TOKEN")
+          fi
+          if [ -z "${WRANGLER_TOML_CONTENT:-}" ]; then
+            missing+=("BACKEND_TOML")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            echo "Please configure the following repository secrets:"
+            for s in "${missing[@]}"; do
+              echo "  - $s"
+            done
+            exit 1
+          fi
+          echo "All required secrets are present."
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WRANGLER_TOML_CONTENT: ${{ secrets.BACKEND_TOML }}
+
+      - name: Deploy Backend for ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          use_worker_assets="${USE_WORKER_ASSETS:-}"
+          use_worker_assets_with_telegram="${USE_WORKER_ASSETS_WITH_TELEGRAM:-}"
+          use_mail_wasm_parser="${USE_MAIL_WASM_PARSER:-}"
+
           if [ -n "$use_worker_assets" ]; then
+            echo "==> Building frontend assets"
             cd frontend/
             pnpm install --no-frozen-lockfile
             if [ -n "$use_worker_assets_with_telegram" ]; then
-              echo "Building with telegram pages"
+              echo "==> Building with telegram pages"
               pnpm build:telegram:pages
             else
-              echo "Building with normal pages"
+              echo "==> Building with normal pages"
               pnpm build:pages
             fi
             cd ..
           fi
 
-          export debug_mode=${{ secrets.DEBUG_MODE }}
-          export use_mail_wasm_parser=${{ secrets.BACKEND_USE_MAIL_WASM_PARSER }}
-          
+          echo "==> Setting up wrangler.toml"
           cd worker/
-          # ✅ 修复核心：使用环境变量写入，避免 Shell 解析特殊字符
           printf '%s\n' "$WRANGLER_TOML_CONTENT" > wrangler.toml
-          
+
+          echo "==> Installing worker dependencies"
           pnpm install --no-frozen-lockfile
 
           if [ -n "$use_mail_wasm_parser" ]; then
-            echo "Using mail-parser-wasm-worker"
+            echo "==> Using mail-parser-wasm-worker"
             pnpm add mail-parser-wasm-worker
             git apply ../.github/config/mail-parser-wasm-worker.patch
-            echo "Applied mail-parser-wasm-worker patch"
+            echo "==> Applied mail-parser-wasm-worker patch"
           fi
 
-          if [ "$debug_mode" = "true" ]; then
-            pnpm run deploy
-          else
-            if pnpm run deploy >/dev/null 2>&1; then
-              echo "Deploy succeeded"
-            else
-              code=$?
-              echo "Command failed with exit code $code"
-              exit "$code"
-            fi
-          fi
-          echo "Deployed for tag ${{ github.ref_name }}"
+          echo "==> Deploying worker for ${{ github.ref_name }}"
+          pnpm run deploy
+          echo "==> Deploy succeeded for ${{ github.ref_name }}"
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # ✅ 将 secret 映射到环境变量中
           WRANGLER_TOML_CONTENT: ${{ secrets.BACKEND_TOML }}
+          USE_WORKER_ASSETS: ${{ secrets.USE_WORKER_ASSETS }}
+          USE_WORKER_ASSETS_WITH_TELEGRAM: ${{ secrets.USE_WORKER_ASSETS_WITH_TELEGRAM }}
+          USE_MAIL_WASM_PARSER: ${{ secrets.BACKEND_USE_MAIL_WASM_PARSER }}
