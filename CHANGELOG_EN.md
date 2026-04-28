@@ -24,6 +24,7 @@
 
 ### Improvements
 
+- fix: |CI| Fix `backend_deploy.yaml` deploy step discarding all `pnpm run deploy` output in non-debug mode (`>/dev/null 2>&1`), which caused deploy failures to report only `exit code 1` with no actionable error. Output is now captured to `deploy.log`; on success the step stays quiet, on failure it `cat`s the log and exits. Also adds a fail-fast guard when `WRANGLER_TOML_CONTENT` is empty and sets `set -o pipefail`
 - refactor: |Worker| Split `mails_api/index.ts` and `admin_api/index.ts` so the index files only wire routes. Business logic moved into dedicated `*_api.ts` files (`mails_crud.ts` / `new_address.ts` / `parsed_mail_api.ts` / `address_api.ts` / `address_sender_api.ts` / `sendbox_api.ts` / `statistics_api.ts` / `account_settings_api.ts`). Paths and behavior unchanged
 
 ## v1.7.0(main)

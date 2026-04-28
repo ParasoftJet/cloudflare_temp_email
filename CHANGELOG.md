@@ -24,6 +24,7 @@
 
 ### Improvements
 
+- fix: |CI| 修复 `backend_deploy.yaml` 部署步骤在非 Debug 模式下将 `pnpm run deploy` 的输出完全丢弃（`>/dev/null 2>&1`），导致部署失败时日志里只剩 `exit code 1` 而看不到真实错误的问题。改为将输出捕获到 `deploy.log`，成功时静默，失败时自动 `cat` 日志并退出；同时新增 `WRANGLER_TOML_CONTENT` 为空时的快速失败守卫，以及 `set -o pipefail`
 - refactor: |Worker| 拆分 `mails_api/index.ts` 与 `admin_api/index.ts`，入口只负责挂路由，业务拆到各自的 `*_api.ts` 文件（`mails_crud.ts` / `new_address.ts` / `parsed_mail_api.ts` / `address_api.ts` / `address_sender_api.ts` / `sendbox_api.ts` / `statistics_api.ts` / `account_settings_api.ts`），保持路径与行为不变
 
 ## v1.7.0(main)
